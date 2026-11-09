@@ -51,7 +51,7 @@ private val looks = listOf(
     Look("Portrait", 1.12f, 0.08f, 0.98f), Look("Dramatic", 1.32f, -0.02f, 1.38f)
 )
 
-class EditorValues(val brightness: Float, val contrast: Float, val saturation: Float, val look: Look) {
+private class EditorValues(val brightness: Float, val contrast: Float, val saturation: Float, val look: Look) {
     fun matrix(): ComposeColorMatrix {
         val s = look.saturation * saturation
         val c = contrast * look.contrast
