@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -51,16 +52,17 @@ private val looks = listOf(
     Look("Portrait", 1.12f, 0.08f, 0.98f), Look("Dramatic", 1.32f, -0.02f, 1.38f)
 )
 
-private class EditorValues(val brightness: Float, val contrast: Float, val saturation: Float, val look: Look) {
+private class EditorValues(val brightness: Float, val contrast: Float, val saturation: Float, val temperature: Float, val look: Look) {
     fun matrix(): ComposeColorMatrix {
         val s = look.saturation * saturation
         val c = contrast * look.contrast
         val b = (brightness + look.warmth * 0.15f) * 255f
+        val warm = temperature * 35f
         val t = (1f - c) * 128f + b
         val base = floatArrayOf(
-            c * (0.213f + 0.787f*s), c * (0.715f - 0.715f*s), c * (0.072f - 0.072f*s), 0f, t + look.warmth*18f,
+            c * (0.213f + 0.787f*s), c * (0.715f - 0.715f*s), c * (0.072f - 0.072f*s), 0f, t + look.warmth*18f + warm,
             c * (0.213f - 0.213f*s), c * (0.715f + 0.285f*s), c * (0.072f - 0.072f*s), 0f, t,
-            c * (0.213f - 0.213f*s), c * (0.715f - 0.715f*s), c * (0.072f + 0.928f*s), 0f, t - look.warmth*18f,
+            c * (0.213f - 0.213f*s), c * (0.715f - 0.715f*s), c * (0.072f + 0.928f*s), 0f, t - look.warmth*18f - warm,
             0f, 0f, 0f, 1f, 0f
         )
         return ComposeColorMatrix(base)
@@ -74,6 +76,9 @@ fun RanaEditorApp() {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
     var saturation by remember { mutableFloatStateOf(1f) }
+    var temperature by remember { mutableFloatStateOf(0f) }
+    var rotation by remember { mutableIntStateOf(0) }
+    var flipHorizontal by remember { mutableStateOf(false) }
     var selectedLook by remember { mutableStateOf(looks.first()) }
     var message by remember { mutableStateOf("Photo import karein aur editing shuru karein") }
     var exporting by remember { mutableStateOf(false) }
@@ -83,7 +88,7 @@ fun RanaEditorApp() {
         selectedMedia = uri
         message = if (uri == null) "Koi photo select nahi hui" else "Photo ready — Adjust ya Filters tab use karein"
     }
-    val values = EditorValues(brightness, contrast, saturation, selectedLook)
+    val values = EditorValues(brightness, contrast, saturation, temperature, selectedLook)
     MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFB59CFF), background = Color(0xFF101018), surface = Color(0xFF1B1B28))) {
         Column(Modifier.fillMaxSize().background(Color(0xFF101018)).verticalScroll(rememberScrollState()).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("RANA EDITOR", color = Color.White, fontSize = 28.sp)
@@ -92,7 +97,7 @@ fun RanaEditorApp() {
             Button(onClick = { picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("＋ Import Photo") }
             Spacer(Modifier.height(12.dp))
             if (selectedMedia != null) {
-                AsyncImage(model = selectedMedia, contentDescription = "Selected photo", modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 340.dp), colorFilter = ColorFilter.colorMatrix(values.matrix()))
+                AsyncImage(model = selectedMedia, contentDescription = "Selected photo", modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 340.dp).graphicsLayer { rotationZ = rotation.toFloat(); scaleX = if (flipHorizontal) -1f else 1f }, colorFilter = ColorFilter.colorMatrix(values.matrix()))
             } else {
                 Box(Modifier.fillMaxWidth().height(210.dp).background(Color(0xFF202030), RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
                     Text("Your photo preview will appear here", color = Color.LightGray)
@@ -101,7 +106,7 @@ fun RanaEditorApp() {
             Text(message, color = Color.LightGray, fontSize = 12.sp)
             Spacer(Modifier.height(14.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Edit", "Filters", "Adjust", "Enhance").forEach { tab ->
+                listOf("Edit", "Filters", "Adjust", "Transform", "Enhance").forEach { tab ->
                     FilterChip(selected = activeTab == tab, onClick = { activeTab = tab }, label = { Text(tab) })
                 }
             }
@@ -112,14 +117,14 @@ fun RanaEditorApp() {
                     Text("Import • Live preview • Reset • Save edited photo", color = Color.LightGray)
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = {
-                        brightness = 0f; contrast = 1f; saturation = 1f; selectedLook = looks.first()
+                        brightness = 0f; contrast = 1f; saturation = 1f; temperature = 0f; rotation = 0; flipHorizontal = false; selectedLook = looks.first()
                         message = "Adjustments reset"
                     }) { Text("Reset all adjustments") }
                     Button(enabled = selectedMedia != null && !exporting, onClick = {
                         val uri = selectedMedia ?: return@Button
                         exporting = true
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { saveEditedPhoto(context, uri, values) }
+                            val result = withContext(Dispatchers.IO) { saveEditedPhoto(context, uri, values, rotation, flipHorizontal) }
                             exporting = false
                             message = if (result != null) "Saved to Pictures/RANA EDITOR" else "Save failed — try another photo"
                         }
@@ -146,6 +151,19 @@ fun RanaEditorApp() {
                     Slider(value = contrast, onValueChange = { contrast = it }, valueRange = 0f..2f)
                     Text("Saturation  %.2f".format(saturation), color = Color.White)
                     Slider(value = saturation, onValueChange = { saturation = it }, valueRange = 0f..2f)
+                    Text("Temperature  %.2f".format(temperature), color = Color.White)
+                    Slider(value = temperature, onValueChange = { temperature = it }, valueRange = -1f..1f)
+                }
+                "Transform" -> {
+                    Text("Transform tools", color = Color.White, fontSize = 20.sp)
+                    Text("Rotate aur mirror photo ko preview aur export dono mein apply honge.", color = Color.LightGray, fontSize = 12.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { rotation = (rotation - 90 + 360) % 360 }) { Text("↶ Rotate left") }
+                        OutlinedButton(onClick = { rotation = (rotation + 90) % 360 }) { Text("↷ Rotate right") }
+                    }
+                    OutlinedButton(onClick = { flipHorizontal = !flipHorizontal }) { Text(if (flipHorizontal) "Unmirror photo" else "Mirror horizontal") }
+                    OutlinedButton(onClick = { rotation = 0; flipHorizontal = false }) { Text("Reset transform") }
                 }
                 "Enhance" -> {
                     Text("Quality Enhance", color = Color.White, fontSize = 20.sp)
@@ -158,7 +176,7 @@ fun RanaEditorApp() {
     }
 }
 
-private fun saveEditedPhoto(context: android.content.Context, uri: Uri, values: EditorValues): Uri? {
+private fun saveEditedPhoto(context: android.content.Context, uri: Uri, values: EditorValues, rotation: Int, flipHorizontal: Boolean): Uri? {
     return try {
         val source = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return null
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
@@ -167,6 +185,11 @@ private fun saveEditedPhoto(context: android.content.Context, uri: Uri, values: 
         matrix.set(values.matrix().values)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = ColorMatrixColorFilter(matrix) }
         canvas.drawBitmap(source, 0f, 0f, paint)
+        val transform = android.graphics.Matrix().apply {
+            postRotate(rotation.toFloat())
+            if (flipHorizontal) postScale(-1f, 1f)
+        }
+        val transformed = Bitmap.createBitmap(output, 0, 0, output.width, output.height, transform, true)
         val name = "RANA_EDITED_${System.currentTimeMillis()}.jpg"
         val content = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -174,9 +197,10 @@ private fun saveEditedPhoto(context: android.content.Context, uri: Uri, values: 
             put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/RANA EDITOR")
         }
         val saved = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, content) ?: return null
-        val ok = context.contentResolver.openOutputStream(saved)?.use { output.compress(Bitmap.CompressFormat.JPEG, 95, it) } ?: false
+        val ok = context.contentResolver.openOutputStream(saved)?.use { transformed.compress(Bitmap.CompressFormat.JPEG, 95, it) } ?: false
         source.recycle()
         output.recycle()
+        if (transformed !== output) transformed.recycle()
         if (ok) saved else null
     } catch (_: Exception) { null }
 }
